@@ -55,6 +55,7 @@ namespace json {
               return true;
           }
 
+          fprintf(stderr, "lexer: REQUIRE ERROR: %c\n", ch);
           throw Exception {"lexer: require error", buf_};
       }
 
@@ -72,10 +73,8 @@ namespace json {
       std::string token(char ch)
       {
           const char *token = buf_;
-          fprintf(stderr, "BUF: %s\n", buf_);
           if (!find(ch))
               throw Exception {"can't find ch for token", token};
-          fprintf(stderr, "BUF: %s\n", buf_);
 
           return std::string {token, static_cast<size_t>(buf_ - token)};
       }

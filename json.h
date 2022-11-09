@@ -9,6 +9,7 @@
 #include <vector>
 #include <stdexcept>
 #include "lexer.h"
+#include "pf.h"
 
 #define $ fprintf(stderr, "%s: %d\n", __PRETTY_FUNCTION__, __LINE__);
 namespace json {
@@ -18,20 +19,29 @@ namespace json {
 
   class Value {
     public:
-      virtual int as_number() { assert(0); }
-      virtual std::string &as_string() { assert(0); }
-      virtual Object &as_object() { assert(0); }
-      virtual Array &as_array() { assert(0); }
+      virtual       int &number()       { assert(0); }
+      virtual const int &number() const { assert(0); }
+
+      virtual       std::string &string()       { assert(0); }
+      virtual const std::string &string() const { assert(0); }
+
+      virtual       Object &object()       { assert(0); }
+      virtual const Object &object() const { assert(0); }
+
+      virtual       Array &array()       { assert(0); }
+      virtual const Array &array() const { assert(0); }
+
+      virtual void serialize(Printer &pf) const = 0;
 
       virtual ~Value() {}
   };
 
-  class String : public Value {
+  class String final : public Value {
     private:
       std::string string_;
     public:
 
-      String(std::string &string)
+      String(const std::string &string)
         : string_ {string}
       {}
 
@@ -39,19 +49,23 @@ namespace json {
         : string_ {}
       {
           $
-          lex.require('"');
-          $
-          string_ = lex.token('"');
-          $
-          lex.require('"');
-          $
+          try {
+              lex.require('"');
+              string_ = lex.token('"');
+              lex.require('"');
+          }
+          catch (...) {
+              throw;
+          }
       }
 
-      virtual std::string &as_string() override { return string_; }
-      virtual ~String() {}
+      virtual void serialize(Printer &pf) const override;
+
+      virtual       std::string &string()       override { return string_; }
+      virtual const std::string &string() const override { return string_; }
   };
 
-  class Number : public Value {
+  class Number final : public Value {
     private:
       int number_;
     public:
@@ -62,54 +76,181 @@ namespace json {
       Number(Lexer &lex)
         : number_ {0}
       {
-          number_ = lex.number();
+        $
+          try {
+              number_ = lex.number();
+          }
+          catch (...) {
+              throw;
+          }
       }
 
-      virtual int as_number() override { return number_; }
+      virtual void serialize(Printer &pf) const override;
+
+      virtual       int &number()       override { return number_; }
+      virtual const int &number() const override { return number_; }
   };
 
-  class Object : public Value {
+  class Element;
+  class Object final : public Value {
     private:
-      std::unordered_map<std::string, class Element *> members_;
+      std::unordered_map<std::string, Element> members_;
     public:
+      Object() = default;
       Object(const std::string &path);
       Object(Lexer &lex);
 
-      Element &operator[](const std::string &key) { return assert(members_.count(key)), *members_[key]; }
-      virtual Object &as_object() override { return *this; }
-      virtual ~Object();
+      Element &operator()(const std::string &key)
+      {
+          assert(!members_.count(key));
+          return members_[key];
+      }
+
+      virtual void serialize(Printer &pf) const override;
+
+            Element &operator[](const std::string &key)       { return members_[key]; }
+      const Element &operator[](const std::string &key) const { assert(members_.count(key)); return members_.at(key); }
+
+      virtual       Object &object()       override { return *this; }
+      virtual const Object &object() const override { return *this; }
   };
 
-  class Array : public Value {
+  class Array final : public Value {
     private:
-      std::vector<Element *> elements_;
+      std::vector<Element> elements_;
+
     public:
-      Array(const std::string &path);
+      Array() = default;
       Array(Lexer &lex);
 
-      Element &operator[](size_t key) { return *elements_[key]; }
-      virtual Array &as_array() override { return *this; }
-      virtual ~Array();
+      virtual void serialize(Printer &pf) const override;
+
+      Element &operator()() { return elements_.emplace_back(), elements_.back(); }
+
+      Element &operator[](size_t key)
+      {
+          assert(key < elements_.size());
+          return elements_.at(key);
+      }
+
+      const Element &operator[](size_t key) const
+      {
+          assert(key < elements_.size());
+          return elements_.at(key);
+      }
+
+      virtual       Array &array()       override { return *this; }
+      virtual const Array &array() const override { return *this; }
   };
 
-  class Element final {
+  class Element final : public Value {
     private:
       Value *value_;
 
     public:
-      Element &operator[](const std::string &key) { return value_->as_object()[key]; }
-      Element &operator[](size_t key) { return value_->as_array()[key]; }
+      Element()
+        : value_ {nullptr}
+      {}
+
       Element(Lexer &lex);
 
+      Element &operator()()                       { assert(value_); return value_->array()(); }
+      Element &operator()(const std::string &key) { assert(value_); return value_->object()(key); }
+
+            Element &operator[](const std::string &key)       { assert(value_); return value_->object()[key]; }
+      const Element &operator[](const std::string &key) const { assert(value_); return value_->object()[key]; }
+
+            Element &operator[](size_t key)       { assert(value_); return value_->array()[key]; }
+      const Element &operator[](size_t key) const { assert(value_); return value_->array()[key]; }
+
+      Element& operator=(const int& number)
+      {
+          delete value_;
+          value_ = new Number {number};
+          return *this;
+      }
+
+      Element& operator=(const std::string &string)
+      {
+          delete value_;
+          value_ = new String {string};
+          return *this;
+      }
+
+      Element& operator=(Object *object)
+      {
+          assert(object);
+          delete value_;
+          value_ = object;
+          return *this;
+      }
+
+      Element& operator=(Array *array)
+      {
+          assert(array);
+          delete value_;
+          value_ = array;
+          return *this;
+      }
+
+      /**
+       * Delete assign operators for now
+       * to prevent such situations:
+       *
+       *  {
+       *    ...
+       *    Element one {...};
+       *    Element two {...};
+       *    two = one;
+       *    ...
+       *    return two;
+       *  } < Here 'one' will free both 'one' and 'two' values.
+       *
+       * Copying full elements tree is not cheap.
+       * Assigning null to one's value is
+       * a little bit strange behaviour.
+       *
+       * Assigning nullptr is a great solution
+       * in combination with move semantics.
+       */
       Element &operator=(const Element &element) = delete;
       Element(const Element &element) = delete;
 
+      Element(Element &&element)
+        : value_ {element.value_}
+      {
+          element.value_ = nullptr;
+      }
+
+      Element &operator=(Element &&element)
+      {
+          assert(!value_);
+          delete value_;
+          value_ = element.value_;
+          element.value_ = nullptr;
+          return *this;
+      }
+
       ~Element() { delete value_; }
 
-      explicit operator int() const { return value_->as_number(); }
-      explicit operator std::string() const { return value_->as_string(); }
-      explicit operator Object&() const { return value_->as_object(); }
-      explicit operator Array&() const { return value_->as_array(); }
+      void serialize(Printer &pf) const override;
+      void serialize(FILE *file) const
+      {
+          Printer pf {file};
+          serialize(pf);
+      }
+
+      virtual       int &number()       override { return value_->number(); }
+      virtual const int &number() const override { return value_->number(); }
+
+      virtual       Object &object()       override { return value_->object(); }
+      virtual const Object &object() const override { return value_->object(); }
+
+      virtual       Array &array()       override { return value_->array(); }
+      virtual const Array &array() const override { return value_->array(); }
+
+      virtual       std::string &string()       override { return value_->string(); }
+      virtual const std::string &string() const override { return value_->string(); }
   };
 }
 
