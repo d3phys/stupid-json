@@ -107,6 +107,11 @@ namespace json {
       }
 
       virtual void serialize(Printer &pf) const override;
+      void serialize(FILE *file) const
+      {
+          Printer pf {file};
+          serialize(pf);
+      }
 
             Element &operator[](const std::string &key)       { return members_[key]; }
       const Element &operator[](const std::string &key) const { assert(members_.count(key)); return members_.at(key); }
