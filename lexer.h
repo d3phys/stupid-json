@@ -6,8 +6,49 @@
 #include <cstring>
 #include <cassert>
 #include <stdexcept>
+#include <exception>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 namespace json {
+  class File final {
+    private:
+      std::string name_;
+      int fd_;
+      size_t size_;
+      char *buffer_;
+
+    public:
+      File(const std::string &name)
+        : name_ {name},
+          fd_ {0},
+          size_ {0}
+      {
+          struct stat st {};
+          if (stat(name_.c_str(), &st) == -1)
+              throw std::runtime_error {strerror(errno)};
+
+          fd_ = open(name_.c_str(), O_RDONLY);
+          if (fd_ == -1)
+              throw std::runtime_error {strerror(errno)};
+
+          size_ = static_cast<size_t>(st.st_size);
+          buffer_ = new char[size_ + 1];
+          memset(buffer_, 0, size_ + 1);
+
+          if (read(fd_, buffer_, size_) == -1)
+              throw std::runtime_error {strerror(errno)};
+      }
+
+      ~File()
+      {
+          delete[] buffer_;
+          close(fd_);
+      }
+
+      char *data() { return buffer_; }
+  };
 
   class Lexer {
     private:
