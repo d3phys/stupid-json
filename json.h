@@ -113,7 +113,7 @@ namespace json {
           serialize(pf);
       }
 
-            Element &operator[](const std::string &key)       { return members_[key]; }
+            Element &operator[](const std::string &key)       { assert(members_.count(key)); return members_.at(key); }
       const Element &operator[](const std::string &key) const { assert(members_.count(key)); return members_.at(key); }
 
       virtual       Object &object()       override { return *this; }
