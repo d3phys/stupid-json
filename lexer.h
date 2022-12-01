@@ -103,7 +103,7 @@ namespace json {
       int number()
       {
           char *end = nullptr;
-          int number = strtol(buf_, &end, 10);
+          int number = strtol(buf_, &end, 0);
           if (end == buf_)
               throw Exception {"lexer: number parse error", buf_};
 

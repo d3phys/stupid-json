@@ -30,14 +30,20 @@ namespace json {
       void Array::serialize(Printer &pf) const
       {$
           pf.print("[");
+          pf.indent();
+          pf.newline();
 
           std::vector<Element>::const_iterator it;
           for (it = elements_.cbegin(); it != elements_.cend(); ++it) {
               it->serialize(pf);
-              if (next(it) != elements_.cend())
-                  pf.print(", ");
+              if (next(it) != elements_.cend()) {
+                  pf.print(",");
+                  pf.newline();
+              }
           }
 
+          pf.unindent();
+          pf.newline();
           pf.print("]");
       }
 
@@ -48,7 +54,20 @@ namespace json {
 
       void Number::serialize(Printer &pf) const
       {$
-          pf.print("%d", number_);
+          switch(base_) {
+            case Base::octal:
+              pf.print("%o", number_);
+              break;
+            case Base::decimal:
+              pf.print("%d", number_);
+              break;
+            case Base::hex:
+              pf.print("%d", number_);
+              break;
+            default:
+              assert(0 && "Unreachable");
+              break;
+          }
       }
 
       void Element::serialize(Printer &pf) const

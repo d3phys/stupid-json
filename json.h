@@ -12,6 +12,7 @@
 #include "pf.h"
 
 #define $ fprintf(stderr, "%s: %d\n", __PRETTY_FUNCTION__, __LINE__);
+
 namespace json {
 
   class Object;
@@ -66,15 +67,25 @@ namespace json {
   };
 
   class Number final : public Value {
+    public:
+      enum Base {
+          hex,
+          decimal,
+          octal,
+      };
+
     private:
       int number_;
+      Base base_;
     public:
-      Number(int number)
-        : number_ {number}
+      Number(int number, Base base = decimal)
+        : number_ {number},
+          base_ {base}
       {}
 
       Number(Lexer &lex)
-        : number_ {0}
+        : number_ {0},
+          base_ {decimal}
       {
         $
           try {
@@ -84,6 +95,9 @@ namespace json {
               throw;
           }
       }
+
+            Base &base()       { return base_; }
+      const Base &base() const { return base_; }
 
       virtual void serialize(Printer &pf) const override;
 
@@ -118,6 +132,8 @@ namespace json {
 
       virtual       Object &object()       override { return *this; }
       virtual const Object &object() const override { return *this; }
+
+      bool contains(const std::string &key) const { return !!(members_.count(key)); }
   };
 
   class Array final : public Value {
@@ -146,6 +162,9 @@ namespace json {
 
       virtual       Array &array()       override { return *this; }
       virtual const Array &array() const override { return *this; }
+
+      const std::vector<Element> &elements() const { return elements_; }
+      size_t size() const { return elements_.size(); }
   };
 
   class Element final : public Value {
@@ -168,10 +187,27 @@ namespace json {
             Element &operator[](size_t key)       { assert(value_); return value_->array()[key]; }
       const Element &operator[](size_t key) const { assert(value_); return value_->array()[key]; }
 
-      Element& operator=(const int& number)
+      Element& operator=(const int &number)
       {
           delete value_;
           value_ = new Number {number};
+          return *this;
+      }
+
+      Element& operator=(const size_t &number)
+      {
+          delete value_;
+          value_ = new Number {
+              static_cast<int>(number)
+          };
+          return *this;
+      }
+
+      Element& operator=(Number *number)
+      {
+          assert(number);
+          delete value_;
+          value_ = number;
           return *this;
       }
 
