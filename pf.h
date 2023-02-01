@@ -11,6 +11,7 @@ namespace json {
       const int indent_size_;
       int indent_;
       FILE *file_;
+
     public:
       Printer(FILE *file, int indent = 4)
         : indent_size_ {indent},

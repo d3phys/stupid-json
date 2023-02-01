@@ -10,9 +10,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include "../drop/drop.h"
 
-namespace json {
-  class File final {
+namespace json
+{
+
+  class File final
+  {
     private:
       std::string name_;
       int fd_;
@@ -50,9 +54,68 @@ namespace json {
       char *data() { return buffer_; }
   };
 
-  class Lexer {
+  struct TokenInfo final
+  {
+      std::size_t line;
+      std::size_t line_position;
+
+      TokenInfo() = default;
+
+      TokenInfo(const char* start, const char* pos)
+        : line {},
+          line_position {}
+      {
+          const char* line_start {};
+          for (line_start = start;
+               start != pos;
+               start++)
+          {
+              if (*start == '\n') {
+                  line_start = start;
+                  line++;
+              }
+          }
+
+          line_position = static_cast<std::size_t>(start - line_start + 1);
+          line++;
+      }
+
+      TokenInfo(const TokenInfo &other) = default;
+      TokenInfo& operator=(const TokenInfo &other) = default;
+  };
+
+  class SyntaxError final
+    : public std::runtime_error
+  {
+    public:
+      using std::runtime_error::runtime_error;
+
+      SyntaxError(const std::string& what, const TokenInfo& info)
+        : std::runtime_error {
+            drop::format("Config file:%ld:%ld: syntax error: %s\n", info.line, info.line_position, what.c_str())
+          }
+      {}
+  };
+
+  class SemanticError final
+    : public std::runtime_error
+  {
+    public:
+      using std::runtime_error::runtime_error;
+
+      SemanticError(const std::string& what, const TokenInfo& info)
+        : std::runtime_error {
+            drop::format("config:%ld:%ld: semantic error: %s\n", info.line, info.line_position, what.c_str())
+          }
+      {}
+  };
+
+  class Lexer final
+    : drop::noncopyable
+  {
     private:
-      const char *buf_;
+      const char* data_;
+      const char* buf_;
 
       void skip_ws()
       {
@@ -69,43 +132,40 @@ namespace json {
       }
 
     public:
-      class Exception : public std::exception {
-        private:
-          const char *where_;
-          const char *what_;
-        public:
-          Exception(const char *what, const char *where)
-            : where_ {where},
-              what_ {what}
-          {}
-
-          virtual const char *what() const noexcept override { return what_; }
-          const char *where() const noexcept { return where_; }
-      };
       Lexer(const char *buf)
-        : buf_ {buf}
+        : data_ {buf},
+          buf_ {buf}
       {}
 
       char next() { return skip_ws(), *buf_; }
       bool next(char ch) { return skip_ws(), (*buf_ == ch); }
 
+      TokenInfo get_token_info() const { return TokenInfo {data_, buf_}; }
+
       bool require(char ch)
       {
+          const char* start = buf_;
           if (next(ch)) {
               buf_++;
               return true;
           }
 
-          fprintf(stderr, "lexer: REQUIRE ERROR: %c\n", ch);
-          throw Exception {"lexer: require error", buf_};
+          buf_ = start;
+          throw SyntaxError {
+              drop::format("there must be '%c' token", ch),
+              get_token_info()
+          };
       }
 
       int number()
       {
           char *end = nullptr;
-          int number = strtol(buf_, &end, 0);
+          int number = static_cast<int>(std::strtol(buf_, &end, 0));
           if (end == buf_)
-              throw Exception {"lexer: number parse error", buf_};
+              throw SyntaxError {
+                  drop::format("there must be a number"),
+                  get_token_info()
+              };
 
           buf_ = end;
           return number;
@@ -114,8 +174,13 @@ namespace json {
       std::string token(char ch)
       {
           const char *token = buf_;
-          if (!find(ch))
-              throw Exception {"can't find ch for token", token};
+          if (!find(ch)) {
+              buf_ = token;
+              throw SyntaxError {
+                  drop::format("there must be a string"),
+                  get_token_info()
+              };
+          }
 
           return std::string {token, static_cast<size_t>(buf_ - token)};
       }
